@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Space Astronaut Girls: Galaxy Quest</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#05051b;color:white;font-family:Arial,sans-serif;text-align:center}
+h1{color:#ff85e1;text-shadow:0 0 18px #b84dff}
+#hud{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;padding:10px}
+canvas{display:block;width:min(96vw,900px);height:auto;aspect-ratio:16/10;margin:auto;border:2px solid #8068ff;border-radius:15px;background:#090b2d;touch-action:none}
+button{background:#ff79d2;border:0;border-radius:12px;padding:12px 18px;margin:5px;font-weight:bold;cursor:pointer}
+#controls{max-width:600px;margin:12px auto}
+#message{color:#8ff4ff;min-height:24px}
+</style>
+</head>
+<body>
+<h1>🚀 Space Astronaut Girls 🌌</h1>
+<div id="hud">
+ <span>💎 Crystals: <b id="score">0</b></span>
+ <span>🛡️ Shields: <b id="life">3</b></span>
+ <span>🌠 Sector: <b id="level">1</b></span>
+</div>
+<canvas id="game" width="900" height="560"></canvas>
+<div id="message">Ready for your galaxy mission, Captain Nova?</div>
+<div>
+ <button onclick="startGame()">START / RESTART 🚀</button>
+ <button onclick="pulse()">PULSE BLAST ✨</button>
+ <button onclick="boost()">JET BOOST 💨</button>
+</div>
+<div id="controls">
+ <button data-dir="up">⬆️</button><br>
+ <button data-dir="left">⬅️</button>
+ <button data-dir="down">⬇️</button>
+ <button data-dir="right">➡️</button>
+ <p>Keyboard: WASD or arrow keys · Space: pulse blast · Shift: boost</p>
+</div>
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const W=900,H=560;
+const keys={};
+let running=false,score=0,lives=3,level=1,last=0;
+let invincible=0,boostTime=0,pulseTime=0;
+let stars=[],crystals=[],rocks=[],enemies=[],particles=[];
+
+const girl={x:450,y:400,vx:0,vy:0,r:17,angle:0};
+
+function random(a,b){return a+Math.random()*(b-a)}
+function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+
+function makeStars(){
+ stars=Array.from({length:150},()=>({
+  x:random(0,W),y:random(0,H),r:random(.5,2),
+  speed:random(8,35),alpha:random(.3,1)
+ }));
+}
+
+function crystal(){
+ crystals.push({x:random(35,W-35),y:random(65,H-35),
+  spin:random(0,6),r:11});
+}
+
+function asteroid(){
+ rocks.push({x:random(30,W-30),y:random(-H,0),
+  r:random(14,28),vx:random(-45,45),vy:random(45,100),
+  spin:random(0,6),rot:random(-1,1)});
+}
+
+function drone(){
+ enemies.push({x:random(40,W-40),y:random(80,H-80),
+  vx:0,vy:0,r:16,hp:1});
+}
+
+function startGame(){
+ score=0;lives=3;level=1;
+ girl.x=450;girl.y=400;girl.vx=girl.vy=0;
+ invincible=2;boostTime=0;pulseTime=0;
+ crystals=[];rocks=[];enemies=[];particles=[];
+ for(let i=0;i<7;i++)crystal();
+ for(let i=0;i<7;i++)asteroid();
+ for(let i=0;i<2;i++)drone();
+ running=true;
+ document.getElementById("message").textContent=
+ "Mission started! Collect crystals and avoid danger!";
+ hud();last=performance.now();
+ requestAnimationFrame(loop);
+}
+
+function hud(){
+ document.getElementById("score").textContent=score;
+ document.getElementById("life").textContent=lives;
+ document.getElementById("level").textContent=level;
+}
+
+function finish(won){
+ running=false;
+ document.getElementById("message").textContent=won?
+ "🏆 GALAXY HERO! You saved the galaxy!":
+ "💫 Mission over! Press START to try again.";
+}
+
+function pulse(){
+ if(!running)return;
+ pulseTime=.45;
+ particles.push({x:girl.x,y:girl.y,r:12,life:.45,pulse:true});
+ document.getElementById("message").textContent="✨ PULSE BLAST!";
+}
+function boost(){
+ if(!running)return;
+ boostTime=.65;
+ document.getElementById("message").textContent="💨 Jet boost activated!";
+}
+
+window.addEventListener("keydown",e=>{
+ let k=e.key.toLowerCase();
+ if(["arrowup","arrowdown","arrowleft","arrowright"," "].includes(k))e.preventDefault();
+ keys[k]=true;
+ if(k===" "&&!e.repeat)pulse();
+ if(k==="shift"&&!e.repeat)boost();
+});
+window.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+
+const dirKeys={up:"arrowup",down:"arrowdown",left:"arrowleft",right:"arrowright"};
+document.querySelectorAll("[data-dir]").forEach(btn=>{
+ const k=dirKeys[btn.dataset.dir];
+ btn.addEventListener("pointerdown",e=>{e.preventDefault();keys[k]=true;});
+ for(const ev of ["pointerup","pointercancel","pointerleave"])
+  btn.addEventListener(ev,()=>keys[k]=false);
+});
+
+function burst(x,y,color){
+ for(let i=0;i<9;i++)particles.push({
+  x,y,vx:random(-100,100),vy:random(-100,100),
+  life:random(.3,.8),color
+ });
+}
+
+function loop(now){
+ if(!running)return;
+ const dt=Math.min((now-last)/1000,.035);
+ last=now;
+ update(dt);draw();
+ if(running)requestAnimationFrame(loop);
+}
+
+function update(dt){
+ invincible=Math.max(0,invincible-dt);
+ boostTime=Math.max(0,boostTime-dt);
+ pulseTime=Math.max(0,pulseTime-dt);
+
+ let ax=0,ay=0;
+ if(keys.arrowleft||keys.a)ax--;
+ if(keys.arrowright||keys.d)ax++;
+ if(keys.arrowup||keys.w)ay--;
+ if(keys.arrowdown||keys.s)ay++;
+
+ const speed=boostTime>0?440:290;
+ girl.vx+=ax*speed*dt;
+ girl.vy+=ay*speed*dt;
+ girl.vx*=Math.pow(.90,dt*60);
+ girl.vy*=Math.pow(.90,dt*60);
+
+ const max=boostTime>0?350:220;
+ const v=Math.hypot(girl.vx,girl.vy);
+ if(v>max){girl.vx=girl.vx/v*max;girl.vy=girl.vy/v*max;}
+
+ girl.x=Math.max(22,Math.min(W-22,girl.x+girl.vx*dt));
+ girl.y=Math.max(70,Math.min(H-22,girl.y+girl.vy*dt));
+ if(v>10)girl.angle=Math.atan2(girl.vy,girl.vx);
+
+ stars.forEach(s=>{s.y+=s.speed*dt;if(s.y>H)s.y=0;});
+
+ rocks.forEach(r=>{
+  r.x+=r.vx*dt;r.y+=r.vy*dt;r.spin+=r.rot*dt;
+  if(r.y>H+r.r){r.y=-r.r;r.x=random(20,W-20);}
+  if(r.x<0||r.x>W)r.vx*=-1;
+ });
+
+ for(let i=crystals.length-1;i>=0;i--){
+  let c=crystals[i];c.spin+=dt*2;
+  if(distance(girl,c)<girl.r+c.r){
+   burst(c.x,c.y,"#65f6ff");
+   crystals.splice(i,1);crystal();score++;hud();
+   document.getElementById("message").textContent="💎 Star crystal collected!";
+   if(score%10===0){
+    level++;drone();asteroid();hud();
+    document.getElementById("message").textContent="🌠 Sector "+level+" unlocked!";
+   }
+   if(score>=30){finish(true);return;}
+  }
+ }
+
+ // AI-inspired drones follow the player and accelerate as sectors rise.
+ enemies.forEach(e=>{
+  let dx=girl.x-e.x,dy=girl.y-e.y,d=Math.hypot(dx,dy)||1;
+  e.vx+=dx/d*(65+level*8)*dt;
+  e.vy+=dy/d*(65+level*8)*dt;
+  e.vx*=.99;e.vy*=.99;
+  let sp=Math.hypot(e.vx,e.vy),cap=85+level*8;
+  if(sp>cap){e.vx=e.vx/sp*cap;e.vy=e.vy/sp*cap;}
+  e.x+=e.vx*dt;e.y+=e.vy*dt;
+  e.x=Math.max(18,Math.min(W-18,e.x));
+  e.y=Math.max(75,Math.min(H-18,e.y));
+ });
+
+ // Pulse blasts stun/remove nearby enemy drones.
+ for(let i=particles.length-1;i>=0;i--){
+  const p=particles[i];
+  p.life-=dt;
+  if(p.pulse){
+   p.r+=350*dt;
+   for(let j=enemies.length-1;j>=0;j--){
+    if(distance(p,enemies[j])<p.r+enemies[j].r){
+     burst(enemies[j].x,enemies[j].y,"#ff70d4");
+     enemies.splice(j,1);score+=2;hud();
+    }
+   }
+  }else{
+   p.x+=p.vx*dt;p.y+=p.vy*dt;
+  }
+  if(p.life<=0)particles.splice(i,1);
+ }
+
+ for(const hazard of [...rocks,...enemies]){
+  if(invincible<=0&&distance(girl,hazard)<girl.r+hazard.r-3){
+   lives--;invincible=1.6;
+   girl.vx=-girl.vx;girl.vy=-150;
+   burst(girl.x,girl.y,"#ff70d4");hud();
+   document.getElementById("message").textContent="💥 Hit! Shield lost.";
+   if(lives<=0){finish(false);return;}
+   break;
+  }
+ }
+}
+
+function drawGirl(){
+ ctx.save();ctx.translate(girl.x,girl.y);
+ ctx.rotate(girl.angle+Math.PI/2);
+ if(invincible>0&&Math.floor(invincible*12)%2===0)ctx.globalAlpha=.4;
+
+ if(boostTime>0){
+  ctx.fillStyle="#70f5ff";
+  ctx.shadowBlur=20;ctx.shadowColor="#70f5ff";
+  ctx.beginPath();ctx.moveTo(-7,12);ctx.lineTo(0,35+Math.random()*12);
+  ctx.lineTo(7,12);ctx.fill();ctx.shadowBlur=0;
+ }
+ // Jetpack
+ ctx.fillStyle="#8fa5df";ctx.fillRect(-16,-2,7,19);ctx.fillRect(9,-2,7,19);
+ // Boots and suit
+ ctx.fillStyle="#f5f5ff";ctx.strokeStyle="#ff9cde";ctx.lineWidth=2;
+ ctx.beginPath();ctx.roundRect(-12,4,10,16,4);ctx.roundRect(2,4,10,16,4);ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.roundRect(-13,-12,26,27,8);ctx.fill();ctx.stroke();
+ ctx.fillStyle="#ff75ce";ctx.fillRect(-6,-6,12,10);
+ // Arms
+ ctx.strokeStyle="#fff";ctx.lineWidth=7;ctx.lineCap="round";
+ ctx.beginPath();ctx.moveTo(-10,-7);ctx.lineTo(-19,2);ctx.moveTo(10,-7);ctx.lineTo(19,2);ctx.stroke();
+ // Pink hair and helmet
+ ctx.fillStyle="#ff5fc7";ctx.beginPath();ctx.arc(0,-21,15,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle="#8deaff";ctx.globalAlpha=.85;
+ ctx.beginPath();ctx.arc(0,-21,11,0,Math.PI*2);ctx.fill();
+ ctx.globalAlpha=1;ctx.strokeStyle="white";ctx.lineWidth=2;
+ ctx.beginPath();ctx.arc(0,-21,13,0,Math.PI*2);ctx.stroke();
+ ctx.fillStyle="white";ctx.beginPath();ctx.arc(-4,-25,3,0,7);ctx.fill();
+ ctx.restore();
+}
+
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ const bg=ctx.createRadialGradient(450,250,5,450,250,650);
+ bg.addColorStop(0,"#202057");bg.addColorStop(1,"#030515");
+ ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+
+ stars.forEach(s=>{
+  ctx.globalAlpha=s.alpha;ctx.fillStyle="white";
+  ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();
+ });ctx.globalAlpha=1;
+
+ // Glowing crystal pickups
+ crystals.forEach(c=>{
+  ctx.save();ctx.translate(c.x,c.y);ctx.rotate(c.spin);
+  ctx.shadowBlur=20;ctx.shadowColor="#5ef7ff";ctx.fillStyle="#76f5ff";
+  ctx.beginPath();ctx.moveTo(0,-c.r);ctx.lineTo(c.r*.7,0);
+  ctx.lineTo(0,c.r);ctx.lineTo(-c.r*.7,0);ctx.closePath();ctx.fill();
+  ctx.restore();
+ });
+
+ // Rocky asteroids
+ rocks.forEach(r=>{
+  ctx.save();ctx.translate(r.x,r.y);ctx.rotate(r.spin);
+  ctx.fillStyle="#66708e";ctx.strokeStyle="#c0c8e8";ctx.lineWidth=2;
+  ctx.beginPath();
+  for(let i=0;i<9;i++){
+   let a=i*Math.PI*2/9,rr=r.r*(.8+Math.sin(i*4.2)*.15);
+   if(i===0)ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr);
+   else ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);
+  }
+  ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle="#424a68";ctx.beginPath();ctx.arc(-5,0,4,0,7);ctx.fill();
+  ctx.restore();
+ });
+
+ // Enemy drones
+ enemies.forEach(e=>{
+  ctx.save();ctx.translate(e.x,e.y);ctx.shadowBlur=16;
+  ctx.shadowColor="#ff448c";ctx.fillStyle="#b52b78";
+  ctx.strokeStyle="#ffb0dc";ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(0,-e.r);ctx.lineTo(e.r,0);
+  ctx.lineTo(0,e.r);ctx.lineTo(-e.r,0);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle="white";ctx.beginPath();ctx.arc(0,0,4,0,7);ctx.fill();
+  ctx.restore();
+ });
+
+ particles.forEach(p=>{
+  ctx.save();ctx.globalAlpha=Math.max(0,p.life/.8);
+  if(p.pulse){
+   ctx.strokeStyle="#91faff";ctx.lineWidth=4;ctx.shadowBlur=20;
+   ctx.shadowColor="#91faff";ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.stroke();
+  }else{
+   ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,3,0,7);ctx.fill();
+  }
+  ctx.restore();
+ });
+
+ drawGirl();
+ ctx.fillStyle="#dce5ff";ctx.font="16px Arial";ctx.textAlign="center";
+ ctx.fillText("MISSION: COLLECT 30 CRYSTALS",W/2,35);
+ ctx.font="13px Arial";ctx.fillText("Avoid asteroids • Outsmart drones • Save the galaxy",W/2,54);
+}
+
+makeStars();
+draw();
+</script>
+</body>
+</html>
